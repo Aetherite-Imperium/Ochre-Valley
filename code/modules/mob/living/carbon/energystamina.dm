@@ -54,7 +54,7 @@
 	if(HAS_TRAIT(src, TRAIT_INFINITE_ENERGY))
 		return TRUE
 	// OV Edit Start
-	if(!IsPetrified() && m_intent == MOVE_INTENT_RUN && (mobility_flags & MOBILITY_STAND))
+	if(!IsPetrified() && added < 0 && m_intent == MOVE_INTENT_RUN && (mobility_flags & MOBILITY_STAND))
 	// OV Edit End
 		if(isnull(buckled))
 			mind && mind.add_sleep_experience(/datum/skill/misc/athletics, (STAINT*0.02))
@@ -106,8 +106,11 @@
 		return TRUE
 
 	var/true_added = added
-	if(HAS_TRAIT(src, TRAIT_FORTITUDE))
-		added = added * 0.5
+	if(added > 0)
+		if(HAS_TRAIT(src, TRAIT_FORTITUDE))
+			added = added * 0.5
+		else if(HAS_TRAIT(src, TRAIT_LESSER_FORTITUDE))
+			added = added * 0.75
 
 	if(added < 0 && HAS_TRAIT(src, TRAIT_FROZEN_STAMINA))
 		added = 0
