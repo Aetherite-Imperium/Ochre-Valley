@@ -8,11 +8,11 @@
 	origin_default = /datum/virtue/origin/grenzelhoft
 	origin = "Grenzelhoft"
 	base_name = "Humen"
+	desc_title = "Half-Kin"
 	desc = "The inevitable union between wildkin and some form of humanity or another. \
 	While they also experience animalistic tendencies akin to their full-blooded ancestors, \
 	their intermingling with others has stemmed the severity of such primordial impulses. \
-	(Half-kin is a mostly animal-like species touched by Dendor intended to serve broadly as a more freeform demi-humen species.  While you're largely given the tools to be whatever creature you wish, you're still meant to be a half-kin, and should have something in mind to explain why your character looks the way they do.)<br>\
-	<span style='color: #6a8cb7;text-shadow:-1px -1px 0 #000,1px -1px 0 #000,-1px 1px 0 #000,1px 1px 0 #000;'><b>+1 PER | +1 WIL </b></span><br>" // OV Edit: Removed warning
+	(Half-kin is a mostly animal-like species touched by Dendor intended to serve broadly as a more freeform demi-humen species.  While you're largely given the tools to be whatever creature you wish, you're still meant to be a half-kin, and should have something in mind to explain why your character looks the way they do.)" //OV Edit Above Per Server
 	skin_tone_wording = "Ancestry"
 	default_color = "FFFFFF"
 	species_traits = list(EYECOLOR,HAIR,FACEHAIR,LIPS,STUBBLE,OLDGREY,MUTCOLORS_PARTSONLY)
@@ -20,6 +20,7 @@
 		/obj/item/bodypart/taur/lamia,
 		/obj/item/bodypart/taur/spider,
 		/obj/item/bodypart/taur/horse,
+		/obj/item/bodypart/taur/goat,
 		///Caustic edit
 		/obj/item/bodypart/taur/cow,
 		/obj/item/bodypart/taur/lizard,
@@ -46,6 +47,7 @@
 		/obj/item/bodypart/taur/biglegs,
 		/obj/item/bodypart/taur/biglegsstanced,
 		///Caustic edit end
+		/obj/item/bodypart/taur/satyr, //OV ADD
 	)
 	default_features = MANDATORY_FEATURE_LIST
 	use_skintones = TRUE
@@ -131,6 +133,9 @@
 		/datum/body_marking/bangs,
 		/datum/body_marking/bun,
 		/datum/body_marking/gradient,
+		/datum/body_marking/waist,
+		/datum/body_marking/womb_tattoo,
+		/datum/body_marking/butterfly
 	)
 	descriptor_choices = list(
 		/datum/descriptor_choice/trait,

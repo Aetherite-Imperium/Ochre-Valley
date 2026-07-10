@@ -9,6 +9,7 @@
 	duration = 5 MINUTES
 
 /datum/status_effect/buff/drunk/on_creation(mob/living/new_owner)
+	new_owner.sate_addiction(/datum/charflaw/addiction/alcoholic)
 	if(HAS_TRAIT(new_owner, TRAIT_NOHUNGER))
 		return FALSE
 	. = ..()
@@ -72,7 +73,9 @@
 /datum/status_effect/buff/snackbuff/on_apply() //can't stack two snack buffs, it'll keep the highest one
 	. = ..()
 	owner.add_stress(/datum/stressevent/goodsnack)
-	if(owner.has_status_effect(/datum/status_effect/buff/greatsnackbuff))
+	if(owner.has_status_effect(/datum/status_effect/buff/mealbuff))
+		owner.remove_status_effect(/datum/status_effect/buff/mealbuff)
+	if(owner.has_status_effect(/datum/status_effect/buff/greatsnackbuff) || owner.has_status_effect(/datum/status_effect/buff/greatmealbuff))
 		owner.remove_status_effect(/datum/status_effect/buff/snackbuff)
 
 
@@ -92,14 +95,17 @@
 
 /atom/movable/screen/alert/status_effect/buff/greatsnackbuff
 	name = "Great Snack!"
-	desc = "Nothing like a great and nutritious snack to help you on that final strech. I feel invigorated."
+	desc = "Nothing like a great and nutritious snack to help you on that final stretch. I feel invigorated."
 	icon_state = "foodbuff"
 
 /datum/status_effect/buff/greatsnackbuff/on_apply()
 	. = ..()
 	owner.add_stress(/datum/stressevent/greatsnack)
-	if(owner.has_status_effect(/datum/status_effect/buff/snackbuff)) //most of the time you technically shouldn't need to check this, but otherwise you get runtimes, so keep it
+	if(owner.has_status_effect(/datum/status_effect/buff/mealbuff) || owner.has_status_effect(/datum/status_effect/buff/snackbuff))
+		owner.remove_status_effect(/datum/status_effect/buff/mealbuff)
 		owner.remove_status_effect(/datum/status_effect/buff/snackbuff)
+	if (owner.has_status_effect(/datum/status_effect/buff/greatmealbuff))
+		owner.remove_status_effect(/datum/status_effect/buff/greatsnackbuff)
 
 /datum/status_effect/buff/mealbuff
 	id = "meal"
@@ -123,7 +129,9 @@
 /datum/status_effect/buff/mealbuff/on_apply()
 	. = ..()
 	owner.add_stress(/datum/stressevent/goodmeal)
-	if(owner.has_status_effect(/datum/status_effect/buff/greatmealbuff))
+	if(owner.has_status_effect(/datum/status_effect/buff/snackbuff))
+		owner.remove_status_effect(/datum/status_effect/buff/snackbuff)
+	if (owner.has_status_effect(/datum/status_effect/buff/greatsnackbuff) || owner.has_status_effect(/datum/status_effect/buff/greatmealbuff))
 		owner.remove_status_effect(/datum/status_effect/buff/mealbuff)
 
 /datum/status_effect/buff/greatmealbuff
@@ -148,8 +156,10 @@
 /datum/status_effect/buff/greatmealbuff/on_apply()
 	. = ..()
 	owner.add_stress(/datum/stressevent/greatmeal)
-	if(owner.has_status_effect(/datum/status_effect/buff/mealbuff))
-		owner.remove_status_effect(/datum/status_effect/buff/mealbuff) //can't stack two meal buffs, it'll keep the highest one
+	if(owner.has_status_effect(/datum/status_effect/buff/mealbuff) || owner.has_status_effect(/datum/status_effect/buff/snackbuff) || owner.has_status_effect(/datum/status_effect/buff/greatsnackbuff))
+		owner.remove_status_effect(/datum/status_effect/buff/mealbuff)
+		owner.remove_status_effect(/datum/status_effect/buff/snackbuff)
+		owner.remove_status_effect(/datum/status_effect/buff/greatsnackbuff)
 
 /datum/status_effect/buff/sweet
 	id = "sugar"
@@ -547,7 +557,7 @@
 /datum/status_effect/buff/healing/tick()
 	if(block_combat_mode && owner.cmode)
 		return
-	if(HAS_TRAIT(owner, TRAIT_IRONMAN))
+	if(HAS_TRAIT(owner, TRAIT_IRONMAN) || HAS_TRAIT(owner, TRAIT_BLACKBLOOD))
 		return
 	var/obj/effect/temp_visual/heal/H = new /obj/effect/temp_visual/heal_rogue(get_turf(owner))
 	H.color = "#FF0000"
@@ -635,6 +645,89 @@
 
 #undef REWIND_AURA
 
+//lasts shorter than magic, one chomp every 3 seconds is good enough, let's not forget food can have multiple slices. This does not heal wounds, wounds are healed automatically like psydonitian trait, but it consumes 1% hunger a tick.
+#define CONSUME_AURA "consumehealing"
+
+/datum/status_effect/buff/foodhealing
+	id = "consumehealing"
+	status_type = STATUS_EFFECT_UNIQUE
+	alert_type = /atom/movable/screen/alert/status_effect/buff/healing
+	duration = 3 SECONDS
+	examine_text = "<font color='#b3b3b3'>SUBJECTPRONOUN is healing unnaturally fast!</font>"
+	var/fare_power = 0
+	var/healing_on_tick = 1
+	var/outline_colour = "#8a8a8a"
+
+/datum/status_effect/buff/foodhealing/on_creation(mob/living/new_owner, new_healing_on_tick, new_fare_power)
+	if(!isnull(new_healing_on_tick))
+		healing_on_tick = new_healing_on_tick
+	if(!isnull(new_fare_power))
+		fare_power = new_fare_power
+	return ..()
+
+/datum/status_effect/buff/foodhealing/on_apply()
+	var/filter = owner.get_filter(CONSUME_AURA)
+	if(!filter)
+		owner.add_filter(CONSUME_AURA, 2, list("type" = "outline", "color" = outline_colour, "alpha" = 60, "size" = 1))
+	return TRUE
+
+/datum/status_effect/buff/foodhealing/on_remove()
+	. = ..()
+	owner.remove_filter(CONSUME_AURA)
+
+/datum/status_effect/buff/foodhealing/tick()
+	var/obj/effect/temp_visual/heal/H = new /obj/effect/temp_visual/psyheal_rogue(get_turf(owner))
+	H.color = "#bdbdbd"
+
+	// Hunger-based healing multiplier.
+	var/effective_nutrition = clamp(owner.nutrition, 0, NUTRITION_LEVEL_FULL)
+	var/missing_nutrition = NUTRITION_LEVEL_FULL - effective_nutrition
+	var/hunger_ratio = missing_nutrition / NUTRITION_LEVEL_FULL
+
+	// 0.25x healing while full, 2.0x while starving.
+	var/healing_mult = 0.25 + (hunger_ratio * 1.75)
+
+	var/heal_amount = healing_on_tick * healing_mult
+
+	if(owner.blood_volume < BLOOD_VOLUME_NORMAL)
+		owner.blood_volume = min(owner.blood_volume + ((BLOOD_VOLUME_NORMAL * 0.005) * healing_mult), BLOOD_VOLUME_NORMAL) // 0.5% blood restored per tick, for pity's sake
+
+	if(ishuman(owner))
+		var/mob/living/carbon/human/HM = owner
+		var/obj/item/bodypart/most_damaged
+
+		for(var/obj/item/bodypart/BP in HM.bodyparts)
+			if(QDELETED(BP))
+				continue
+
+			if(!most_damaged || (BP.brute_dam + BP.burn_dam) > (most_damaged.brute_dam + most_damaged.burn_dam))
+				most_damaged = BP
+
+		if(most_damaged)
+			var/total_damage = most_damaged.brute_dam + most_damaged.burn_dam
+
+			if(total_damage > 0)
+				var/brute_heal = heal_amount
+				var/burn_heal = heal_amount
+
+				brute_heal += most_damaged.brute_dam * (0.08 * healing_mult)
+				burn_heal += most_damaged.burn_dam * (0.08 * healing_mult)
+
+				most_damaged.heal_damage(brute_heal, burn_heal)
+				HM.update_damage_overlays()
+
+	owner.adjustOxyLoss(-heal_amount, 0)
+	owner.adjustToxLoss(-heal_amount, 0)
+
+	owner.adjustOrganLoss(ORGAN_SLOT_BRAIN, -heal_amount)
+	owner.adjustCloneLoss(-heal_amount, 0)
+
+	owner.stamina_add(-6)
+	owner.energy_add(9)
+
+#undef CONSUME_AURA
+
+
 /atom/movable/screen/alert/status_effect/buff/healing/campfire
 	name = "Camp Rest"
 	desc = "The warmth of a fire and a bed soothes my ails."
@@ -665,11 +758,10 @@
 /datum/status_effect/buff/campfire_stamina/tick()
 	if(HAS_TRAIT(owner, TRAIT_IRONMAN))
 		return
-	var/stamheal = healing_on_tick
-	if(!owner.cmode)
-		stamheal *= 2
-	owner.energy_add(stamheal)
 	owner.adjust_bodytemperature(8)
+	if(owner.in_combat_until > world.time)
+		return
+	owner.energy_add(healing_on_tick * 2)
 
 /datum/status_effect/buff/campfire_stamina/on_remove()
 	owner.remove_filter(CAMPFIRE_BASE_FILTER)
@@ -682,21 +774,24 @@
 	duration = 6 SECONDS
 
 /datum/status_effect/buff/campfire/tick()
-	if(owner.cmode)
+	if(owner.in_combat_until > world.time)
 		return
 	if(HAS_TRAIT(owner, TRAIT_IRONMAN))
 		return
 	var/obj/effect/temp_visual/heal/H = new /obj/effect/temp_visual/heal_rogue/campfire(get_turf(owner))
 	H.color = "#c7aa5c"
-	if(owner.blood_volume < BLOOD_VOLUME_OKAY)
+	var/bleeding = owner.bleed_rate > 1 ? TRUE : FALSE
+	var/wound_heal = bleeding ? 1 : healing_on_tick
+	if(owner.blood_volume < BLOOD_VOLUME_OKAY && !bleeding)
 		owner.blood_volume = min(owner.blood_volume+healing_on_tick, BLOOD_VOLUME_OKAY)
 	var/list/wCount = owner.get_wounds()
 	if(length(wCount))
-		owner.heal_wounds(healing_on_tick, list(/datum/wound/slash, /datum/wound/puncture, /datum/wound/bite, /datum/wound/bruise, /datum/wound/dynamic, /datum/wound/dislocation))
+		owner.heal_wounds(wound_heal, list(/datum/wound/slash, /datum/wound/puncture, /datum/wound/bite, /datum/wound/bruise, /datum/wound/dynamic, /datum/wound/dislocation))
 		owner.update_damage_overlays()
 	owner.adjustBruteLoss(-healing_on_tick, 0)
 	owner.adjustFireLoss(-healing_on_tick, 0)
-	owner.adjustOxyLoss(-healing_on_tick, 0)
+	if(!bleeding)
+		owner.adjustOxyLoss(-healing_on_tick, 0)
 	owner.adjustToxLoss(-healing_on_tick, 0)
 	owner.adjustOrganLoss(ORGAN_SLOT_BRAIN, -healing_on_tick)
 	owner.adjustCloneLoss(-healing_on_tick, 0)
@@ -1055,7 +1150,7 @@
 /datum/status_effect/buff/reversion
 	id = "stasis"
 	alert_type = /atom/movable/screen/alert/status_effect/buff/stasis
-	duration = 15 SECONDS
+	duration = 25 SECONDS
 
 #define CRANKBOX_FILTER "crankboxbuff_glow"
 /atom/movable/screen/alert/status_effect/buff/churnerprotection
@@ -1600,6 +1695,11 @@
 	desc = span_notice("A brief window of deflection lingers from my guard.")
 	icon_state = "clash"
 
+/datum/status_effect/buff/emberward
+	id = "emberward"
+	duration = 1 SECONDS
+	alert_type = null
+
 /atom/movable/screen/alert/status_effect/buff/clash/limbguard
 	name = "Limb Guard"
 	desc = span_notice("I have focused my attention to guarding one limb. I shall deflect projectiles and blows to that limb with ease.")
@@ -1644,6 +1744,8 @@
 /datum/status_effect/buff/clash/limbguard/on_creation(mob/living/new_owner, ...)
 	. = ..()
 	shield_origin = owner.get_active_held_item()
+	if(!shield_origin)
+		shield_origin = owner.get_inactive_held_item()
 
 /datum/status_effect/buff/clash/limbguard/on_apply()
 	. = ..()
@@ -1805,13 +1907,23 @@
 	id = "bloodrage"
 	alert_type = /atom/movable/screen/alert/status_effect/buff/graggar_bloodrage
 	var/outline_color = "#ad0202"
+	var/originalcmode = ""
 	duration = 15 SECONDS
 
 /datum/status_effect/buff/bloodrage/on_apply()
 	ADD_TRAIT(owner, TRAIT_STRENGTH_UNCAPPED, TRAIT_MIRACLE)
+	shake_camera(owner, 5, 2) //Aura
+	originalcmode = owner.cmode_music
+	owner.cmode_music = 'sound/music/combat_bloodrage.ogg' //I'LL FUCK ANYTHING THAT MOVES
+	to_chat(owner, span_userdanger(pick("KILL, FUCKING KILL! SLAUGHTER THEM!", "BLOOD, FUCKING SPILL THE BLOOD!", "BLOOD AND FURY, SPLITTING MY SKULL!", "I'LL KILL ANYTHING THAT MOVES!", "I'M FUCKING UNSTOPPABLE, I'LL BREAK THEM!")))
 	var/holyskill = owner.get_skill_level(/datum/skill/magic/holy)
 	duration = ((15 SECONDS) * holyskill)
 	var/filter = owner.get_filter(BLOODRAGE_FILTER)
+	if(!owner.cmode)	//Turns on combat mode
+		owner.toggle_cmode()
+	else		//Gigajank to reset your combat music
+		owner.toggle_cmode()
+		owner.toggle_cmode()
 	if(!filter)
 		owner.add_filter(BLOODRAGE_FILTER, 2, list("type" = "outline", "color" = outline_color, "alpha" = 60, "size" = 2))
 	if(!HAS_TRAIT(owner, TRAIT_DODGEEXPERT))
@@ -1833,7 +1945,11 @@
 	owner.OffBalance(3 SECONDS)
 	owner.remove_filter(BLOODRAGE_FILTER)
 	owner.emote("breathgasp", forced = TRUE)
+	owner.cmode_music = originalcmode
 	owner.Slowdown(3)
+	if(owner.cmode && !owner.has_status_effect(/datum/status_effect/buff/call_to_slaughter))	//No cmode, no point - More Gigajank for combat music UNLESS call to slaughter is active
+		owner.toggle_cmode()
+		owner.toggle_cmode()
 
 /datum/status_effect/buff/psydonic_endurance
 	id = "psydonic_endurance"
@@ -1894,6 +2010,7 @@
 
 /datum/status_effect/buff/adrenaline_rush
 	id = "adrrush"
+	status_type = STATUS_EFFECT_REPLACE
 	alert_type = /atom/movable/screen/alert/status_effect/buff/adrenaline_rush
 	duration = 18 SECONDS
 	examine_text = "SUBJECTPRONOUN is amped up!"
@@ -1912,173 +2029,23 @@
 
 /datum/status_effect/buff/adrenaline_rush/on_remove()
 	. = ..()
+	clear_adrenaline_rush()
+
+/datum/status_effect/buff/adrenaline_rush/be_replaced()
+	clear_adrenaline_rush()
+	return ..()
+
+/datum/status_effect/buff/adrenaline_rush/proc/clear_adrenaline_rush()
 	REMOVE_TRAIT(owner, TRAIT_ADRENALINE_RUSH, INNATE_TRAIT)
 	var/mob/living/carbon/human/human = owner
 	if(istype(human))
 		human.pain_threshold -= 50
 
-//OV ADD - Empowerment Section //OV Edit AP Merge 4.2.26 - Commented Out Pending Rework
-/* /datum/status_effect/buff/magic/strength
-	id = "strength"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/strength
-	effectedstats = list("strength" = 3)
-	duration = 20 MINUTES
+/datum/status_effect/buff/adrenaline_rush/ranged
+	effectedstats = list(STATKEY_SPD = 2)
 
-/datum/status_effect/buff/magic/strength/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/strength_lesser))
-		owner.remove_status_effect(/datum/status_effect/buff/magic/strength_lesser)
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/strength
-	name = "arcane reinforced strength"
-	desc = "I am magically strengthened."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/strength_lesser
-	id = "lesser strength"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/strength/lesser
-	effectedstats = list("strength" = 1)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/strength_lesser/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/strength))
-		return FALSE
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/strength/lesser
-	name = "lesser arcane strength"
-	desc = "I am magically strengthened."
-	icon_state = "buff"
-
-
-/datum/status_effect/buff/magic/speed
-	id = "speed"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/speed
-	effectedstats = list("speed" = 3)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/speed/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/speed_lesser))
-		owner.remove_status_effect(/datum/status_effect/buff/magic/speed_lesser)
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/speed
-	name = "arcane swiftness"
-	desc = "I am magically swift."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/speed_lesser
-	id = "lesser speed"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/speed/lesser
-	effectedstats = list("speed" = 1)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/speed_lesser/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/speed))
-		return FALSE
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/speed/lesser
-	name = "arcane swiftness"
-	desc = "I am magically swift."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/willpower
-	id = "willpower"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/willpower
-	effectedstats = list("willpower" = 3)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/willpower/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/willpower_lesser))
-		owner.remove_status_effect(/datum/status_effect/buff/magic/willpower_lesser)
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/willpower
-	name = "arcane willpower"
-	desc = "I am magically resilient."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/willpower_lesser
-	id = "lesser willpower"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/willpower/lesser
-	effectedstats = list("willpower" = 1)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/willpower_lesser/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/willpower))
-		return FALSE
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/willpower/lesser
-	name = "lesser arcane willpower"
-	desc = "I am magically resilient."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/constitution
-	id = "constitution"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/constitution
-	effectedstats = list("constitution" = 3)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/constitution/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/constitution_lesser))
-		owner.remove_status_effect(/datum/status_effect/buff/magic/constitution_lesser)
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/constitution
-	name = "arcane constitution"
-	desc = "I feel reinforced by magick."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/constitution_lesser
-	id = "lesser constitution"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/constitution/lesser
-	effectedstats = list("constitution" = 1)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/constitution_lesser/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/constitution))
-		return FALSE
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/constitution/lesser
-	name = "lesser arcane constitution"
-	desc = "I feel reinforced by magick."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/perception
-	id = "perception"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/perception
-	effectedstats = list("perception" = 3)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/perception/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/perception_lesser))
-		owner.remove_status_effect(/datum/status_effect/buff/magic/perception_lesser)
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/perception
-	name = "arcane perception"
-	desc = "I can see everything."
-	icon_state = "buff"
-
-/datum/status_effect/buff/magic/perception_lesser
-	id = "lesser perception"
-	alert_type = /atom/movable/screen/alert/status_effect/buff/magic/perception/lesser
-	effectedstats = list("perception" = 1)
-	duration = 20 MINUTES
-
-/datum/status_effect/buff/magic/perception_lesser/on_apply()
-	if(owner.has_status_effect(/datum/status_effect/buff/magic/perception))
-		return FALSE
-	return ..()
-
-/atom/movable/screen/alert/status_effect/buff/magic/perception/lesser
-	name = "lesser arcane perception"
-	desc = "I can see somethings."
-	icon_state = "buff" */
-//OV Add End - Empowerment Section
+/datum/status_effect/buff/adrenaline_rush/melee
+	effectedstats = list(STATKEY_WIL = 1, STATKEY_CON = 1)
 
 /datum/status_effect/buff/nocblessing
 	id = "nocblessing"
@@ -2352,6 +2319,50 @@
 /datum/status_effect/buff/dagger_dash/on_remove()
 	owner.pass_flags &= ~PASSMOB
 	REMOVE_TRAIT(owner, TRAIT_GRABIMMUNE, TRAIT_STATUS_EFFECT)
+	. = ..()
+
+/atom/movable/screen/alert/status_effect/buff/phase
+	name = "Phase"
+	desc = "I'm slipping between the realms!"
+	icon_state = "daggerdash"
+
+/datum/status_effect/buff/phase
+	id = "phase"
+	alert_type = /atom/movable/screen/alert/status_effect/buff/phase
+	effectedstats = list(STATKEY_SPD = 4)
+	status_type = STATUS_EFFECT_UNIQUE
+	duration = 5 SECONDS
+	var/original_alpha = 255
+
+/datum/status_effect/buff/phase/on_creation(mob/living/new_owner)
+	if(ishuman(new_owner))
+		var/mob/living/carbon/human/H = new_owner
+		switch(H.highest_ac_worn())
+			if(ARMOR_CLASS_NONE)
+				duration = 5 SECONDS
+				effectedstats[STATKEY_SPD] = 4
+			if(ARMOR_CLASS_LIGHT)
+				duration = 4 SECONDS
+				effectedstats[STATKEY_SPD] = 3
+			if(ARMOR_CLASS_MEDIUM)
+				duration = 3 SECONDS
+				effectedstats[STATKEY_SPD] = 2
+			if(ARMOR_CLASS_HEAVY)
+				duration = 2 SECONDS
+				effectedstats[STATKEY_SPD] = 1
+	. = ..()
+
+/datum/status_effect/buff/phase/on_apply()
+	owner.pass_flags |= PASSMOB
+	ADD_TRAIT(owner, TRAIT_GRABIMMUNE, TRAIT_STATUS_EFFECT)
+	original_alpha = owner.alpha
+	animate(owner, alpha = 180, time = 2)
+	. = ..()
+
+/datum/status_effect/buff/phase/on_remove()
+	owner.pass_flags &= ~PASSMOB
+	REMOVE_TRAIT(owner, TRAIT_GRABIMMUNE, TRAIT_STATUS_EFFECT)
+	animate(owner, alpha = original_alpha, time = 2)
 	. = ..()
 
 /datum/status_effect/buff/dagger_boost
@@ -2789,3 +2800,32 @@
 	return ..()
 
 #undef INVIGORATION_FILTER
+
+
+//overclock buff for prosthetics
+/atom/movable/screen/alert/status_effect/buff/overclock
+	name = "Overclocked"
+	desc = "You are pushing your prosthetics to their limits. But you may break something..."
+	icon_state = "buff"
+
+/datum/status_effect/buff/overclock
+	id = "overclock"
+	alert_type = /atom/movable/screen/alert/status_effect/buff/overclock
+	duration = 2 MINUTES
+	status_type = STATUS_EFFECT_REPLACE
+
+/datum/status_effect/buff/overclock/on_creation(mob/living/new_owner, prosthetic_arms, prosthetic_legs)
+	effectedstats = list()
+	if(prosthetic_arms > 0)
+		effectedstats[STATKEY_STR] = prosthetic_arms
+	if(prosthetic_legs > 0)
+		effectedstats[STATKEY_SPD] = prosthetic_legs
+	return ..()
+
+/datum/status_effect/buff/overclock/on_apply()
+	. = ..()
+	to_chat(owner, span_warning("The interals of my prosthetics wind up faster, vibrating as they work harder for a little while."))
+
+/datum/status_effect/buff/overclock/on_remove()
+	. = ..()
+	to_chat(owner, span_notice("I feel the hum of my prosthetics slow down, they need time to recharge."))
